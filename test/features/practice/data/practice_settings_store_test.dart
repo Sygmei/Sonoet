@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sonoet/src/features/practice/data/practice_settings_store.dart';
 import 'package:sonoet/src/features/practice/domain/music_note.dart';
 import 'package:sonoet/src/features/practice/domain/practice_clef.dart';
+import 'package:sonoet/src/features/practice/domain/practice_exercise.dart';
 import 'package:sonoet/src/features/practice/domain/practice_key_signature.dart';
 import 'package:sonoet/src/features/practice/domain/practice_language.dart';
 import 'package:sonoet/src/features/practice/domain/stave_background.dart';
@@ -34,6 +35,8 @@ void main() {
         },
         keySignature: PracticeKeySignature.dMajor,
         allowAccidentals: false,
+        practiceSource: PracticeSource.scaleExercise,
+        scaleExerciseId: 'd_major_scale',
       );
 
       final store = PracticeSettingsStore();
@@ -56,6 +59,8 @@ void main() {
       );
       expect(loadedSettings.keySignature, savedSettings.keySignature);
       expect(loadedSettings.allowAccidentals, savedSettings.allowAccidentals);
+      expect(loadedSettings.practiceSource, savedSettings.practiceSource);
+      expect(loadedSettings.scaleExerciseId, savedSettings.scaleExerciseId);
     });
   });
 }

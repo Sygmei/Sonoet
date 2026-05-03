@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/music_note.dart';
 import '../domain/practice_clef.dart';
+import '../domain/practice_exercise.dart';
 import '../domain/practice_key_signature.dart';
 import '../domain/practice_language.dart';
 import '../domain/stave_background.dart';
@@ -19,6 +20,8 @@ class StoredPracticeSettings {
     required this.allowedKeySignatures,
     required this.keySignature,
     required this.allowAccidentals,
+    required this.practiceSource,
+    required this.scaleExerciseId,
   });
 
   final int detectedOctaveShift;
@@ -32,6 +35,8 @@ class StoredPracticeSettings {
   final Set<PracticeKeySignature> allowedKeySignatures;
   final PracticeKeySignature keySignature;
   final bool allowAccidentals;
+  final PracticeSource practiceSource;
+  final String scaleExerciseId;
 }
 
 class PracticeSettingsStore {
@@ -47,6 +52,8 @@ class PracticeSettingsStore {
   static const _allowedKeySignaturesKey = 'practice.allowedKeySignatures';
   static const _keySignatureKey = 'practice.keySignature';
   static const _allowAccidentalsKey = 'practice.allowAccidentals';
+  static const _practiceSourceKey = 'practice.practiceSource';
+  static const _scaleExerciseIdKey = 'practice.scaleExerciseId';
 
   Future<StoredPracticeSettings?> load() async {
     final preferences = await SharedPreferences.getInstance();
@@ -95,6 +102,13 @@ class PracticeSettingsStore {
           ) ??
           PracticeKeySignature.cMajor,
       allowAccidentals: preferences.getBool(_allowAccidentalsKey) ?? true,
+      practiceSource: _enumByName(
+            PracticeSource.values,
+            preferences.getString(_practiceSourceKey),
+          ) ??
+          PracticeSource.random,
+      scaleExerciseId: preferences.getString(_scaleExerciseIdKey) ??
+          fallbackScaleExercise.id,
     );
   }
 
@@ -127,6 +141,11 @@ class PracticeSettingsStore {
       _allowAccidentalsKey,
       settings.allowAccidentals,
     );
+    await preferences.setString(
+      _practiceSourceKey,
+      settings.practiceSource.name,
+    );
+    await preferences.setString(_scaleExerciseIdKey, settings.scaleExerciseId);
   }
 
   T? _enumByName<T extends Enum>(List<T> values, String? name) {

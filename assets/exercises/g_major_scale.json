@@ -1,0 +1,12 @@
+{
+  "id": "g_major_scale",
+  "category": "scales",
+  "name": "G major",
+  "difficulty": "beginner",
+  "labels": ["scale", "major", "sharp", "ascending", "descending"],
+  "keySignature": "gMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["G3", "A3", "B3", "C4", "D4", "E4", "F#4", "G4", "F#4", "E4", "D4", "C4", "B3", "A3", "G3"]
+}

@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "dev.obencorp" "\0"
-            VALUE "FileDescription", "sonoet" "\0"
+            VALUE "FileDescription", "Sonoet" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "sonoet" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 dev.obencorp. All rights reserved." "\0"
             VALUE "OriginalFilename", "sonoet.exe" "\0"
-            VALUE "ProductName", "sonoet" "\0"
+            VALUE "ProductName", "Sonoet" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/practice_exercise_repository.dart';
 import '../data/microphone_pitch_source.dart';
 import '../data/practice_settings_store.dart';
 import '../domain/detected_pitch.dart';
@@ -10,6 +11,7 @@ import '../domain/music_note.dart';
 import '../domain/note_generator.dart';
 import '../domain/pitch_source.dart';
 import '../domain/practice_clef.dart';
+import '../domain/practice_exercise.dart';
 import '../domain/practice_key_signature.dart';
 import '../domain/practice_language.dart';
 import '../domain/stave_background.dart';
@@ -24,6 +26,10 @@ final pitchSourceProvider = Provider<PitchSource>((ref) {
 
 final practiceSettingsStoreProvider =
     Provider<PracticeSettingsStore>((ref) => PracticeSettingsStore());
+
+final practiceExerciseRepositoryProvider = Provider<PracticeExerciseRepository>(
+  (ref) => PracticeExerciseRepository(),
+);
 
 final practiceControllerProvider =
     NotifierProvider<PracticeController, PracticeState>(PracticeController.new);
@@ -86,6 +92,9 @@ class PracticeState {
     required this.allowedKeySignatures,
     required this.keySignature,
     required this.allowAccidentals,
+    required this.practiceSource,
+    required this.scaleExercise,
+    required this.scaleExercises,
     required this.noteTimings,
     required this.currentNoteStartedAt,
     this.lastPageAverageDuration,
@@ -110,6 +119,9 @@ class PracticeState {
   final Set<PracticeKeySignature> allowedKeySignatures;
   final PracticeKeySignature keySignature;
   final bool allowAccidentals;
+  final PracticeSource practiceSource;
+  final ScaleExercise scaleExercise;
+  final List<ScaleExercise> scaleExercises;
   final List<NoteTimingResult?> noteTimings;
   final DateTime? currentNoteStartedAt;
   final Duration? lastPageAverageDuration;
@@ -211,6 +223,9 @@ class PracticeState {
     Set<PracticeKeySignature>? allowedKeySignatures,
     PracticeKeySignature? keySignature,
     bool? allowAccidentals,
+    PracticeSource? practiceSource,
+    ScaleExercise? scaleExercise,
+    List<ScaleExercise>? scaleExercises,
     List<NoteTimingResult?>? noteTimings,
     DateTime? currentNoteStartedAt,
     Duration? lastPageAverageDuration,
@@ -242,6 +257,9 @@ class PracticeState {
       allowedKeySignatures: allowedKeySignatures ?? this.allowedKeySignatures,
       keySignature: keySignature ?? this.keySignature,
       allowAccidentals: allowAccidentals ?? this.allowAccidentals,
+      practiceSource: practiceSource ?? this.practiceSource,
+      scaleExercise: scaleExercise ?? this.scaleExercise,
+      scaleExercises: scaleExercises ?? this.scaleExercises,
       noteTimings: noteTimings ?? this.noteTimings,
       currentNoteStartedAt: clearCurrentNoteStartedAt
           ? null
@@ -295,7 +313,7 @@ class PracticeController extends Notifier<PracticeState> {
       }
     });
 
-    unawaited(_restoreSavedSettings());
+    unawaited(_restoreSavedContent());
 
     return _stateFromSettings(_defaultSettings());
   }
@@ -334,8 +352,14 @@ class PracticeController extends Notifier<PracticeState> {
   Future<void> reset() async {
     await _stopListening();
     _stableFrames = 0;
-    final keySignature = _chooseKeySignature(state.allowedKeySignatures);
-    final notes = _generateNotes(
+    final keySignature = _nextKeySignature(
+      source: state.practiceSource,
+      scaleExercise: state.scaleExercise,
+      allowedKeySignatures: state.allowedKeySignatures,
+    );
+    final notes = _generatePracticeNotes(
+      source: state.practiceSource,
+      scaleExercise: state.scaleExercise,
       lowest: state.lowestNote,
       highest: state.highestNote,
       keySignature: keySignature,
@@ -358,11 +382,37 @@ class PracticeController extends Notifier<PracticeState> {
       allowedKeySignatures: state.allowedKeySignatures,
       keySignature: keySignature,
       allowAccidentals: state.allowAccidentals,
+      practiceSource: state.practiceSource,
+      scaleExercise: state.scaleExercise,
+      scaleExercises: state.scaleExercises,
       noteTimings: _emptyTimings(notes.length),
       currentNoteStartedAt: null,
       lastPageAverageDuration: null,
       lastPageTotalDuration: null,
       bestPageTotalDuration: null,
+    );
+  }
+
+  Future<void> selectRandomPractice() async {
+    if (state.practiceSource == PracticeSource.random) {
+      return;
+    }
+
+    await _setPracticeSource(
+      source: PracticeSource.random,
+      scaleExercise: state.scaleExercise,
+    );
+  }
+
+  Future<void> selectScaleExercise(ScaleExercise exercise) async {
+    if (state.practiceSource == PracticeSource.scaleExercise &&
+        state.scaleExercise.id == exercise.id) {
+      return;
+    }
+
+    await _setPracticeSource(
+      source: PracticeSource.scaleExercise,
+      scaleExercise: exercise,
     );
   }
 
@@ -481,6 +531,65 @@ class PracticeController extends Notifier<PracticeState> {
     await _setExerciseSettings(allowAccidentals: value);
   }
 
+  Future<void> _setPracticeSource({
+    required PracticeSource source,
+    required ScaleExercise scaleExercise,
+  }) async {
+    await _stopListening();
+    _stableFrames = 0;
+
+    final nextClef = source == PracticeSource.scaleExercise
+        ? scaleExercise.clef
+        : state.clef;
+    final nextBeatsPerMeasure = source == PracticeSource.scaleExercise
+        ? scaleExercise.beatsPerMeasure
+        : state.beatsPerMeasure;
+    final nextMeasuresPerPage = source == PracticeSource.scaleExercise
+        ? scaleExercise.measuresPerPage
+        : state.measuresPerPage;
+    final keySignature = _nextKeySignature(
+      source: source,
+      scaleExercise: scaleExercise,
+      allowedKeySignatures: state.allowedKeySignatures,
+    );
+    final notes = _generatePracticeNotes(
+      source: source,
+      scaleExercise: scaleExercise,
+      lowest: state.lowestNote,
+      highest: state.highestNote,
+      keySignature: keySignature,
+      allowAccidentals: state.allowAccidentals,
+      beatsPerMeasure: nextBeatsPerMeasure,
+      measuresPerPage: nextMeasuresPerPage,
+    );
+
+    state = PracticeState(
+      notes: notes,
+      currentIndex: 0,
+      status: PracticeStatus.idle,
+      detectedOctaveShift: state.detectedOctaveShift,
+      lowestNote: state.lowestNote,
+      highestNote: state.highestNote,
+      clef: nextClef,
+      beatsPerMeasure: nextBeatsPerMeasure,
+      measuresPerPage: nextMeasuresPerPage,
+      language: state.language,
+      staveBackground: state.staveBackground,
+      allowedKeySignatures: state.allowedKeySignatures,
+      keySignature: keySignature,
+      allowAccidentals: state.allowAccidentals,
+      practiceSource: source,
+      scaleExercise: scaleExercise,
+      scaleExercises: state.scaleExercises,
+      noteTimings: _emptyTimings(notes.length),
+      currentNoteStartedAt: null,
+      lastPageAverageDuration: null,
+      lastPageTotalDuration: null,
+      bestPageTotalDuration: null,
+    );
+    _persistSettings();
+  }
+
   void simulateCurrentNote() {
     final note = state.currentNote;
     if (note == null) {
@@ -538,9 +647,14 @@ class PracticeController extends Notifier<PracticeState> {
           currentBest: state.bestPageTotalDuration,
           candidate: totalDuration,
         );
-        final nextKeySignature =
-            _chooseKeySignature(state.allowedKeySignatures);
-        final nextNotes = _generateNotes(
+        final nextKeySignature = _nextKeySignature(
+          source: state.practiceSource,
+          scaleExercise: state.scaleExercise,
+          allowedKeySignatures: state.allowedKeySignatures,
+        );
+        final nextNotes = _generatePracticeNotes(
+          source: state.practiceSource,
+          scaleExercise: state.scaleExercise,
           lowest: state.lowestNote,
           highest: state.highestNote,
           keySignature: nextKeySignature,
@@ -627,13 +741,17 @@ class PracticeController extends Notifier<PracticeState> {
         allowedKeySignatures ?? state.allowedKeySignatures;
     final nextAllowAccidentals = allowAccidentals ?? state.allowAccidentals;
     final nextKeySignature =
-        nextAllowedKeySignatures.contains(state.keySignature)
-            ? _chooseKeySignature(nextAllowedKeySignatures)
-            : nextAllowedKeySignatures.first;
+        state.practiceSource == PracticeSource.scaleExercise
+            ? state.scaleExercise.keySignature
+            : nextAllowedKeySignatures.contains(state.keySignature)
+                ? _chooseKeySignature(nextAllowedKeySignatures)
+                : nextAllowedKeySignatures.first;
 
     await _stopListening();
     _stableFrames = 0;
-    final notes = _generateNotes(
+    final notes = _generatePracticeNotes(
+      source: state.practiceSource,
+      scaleExercise: state.scaleExercise,
       lowest: nextLowest,
       highest: nextHighest,
       keySignature: nextKeySignature,
@@ -656,6 +774,9 @@ class PracticeController extends Notifier<PracticeState> {
       allowedKeySignatures: nextAllowedKeySignatures,
       keySignature: nextKeySignature,
       allowAccidentals: nextAllowAccidentals,
+      practiceSource: state.practiceSource,
+      scaleExercise: state.scaleExercise,
+      scaleExercises: state.scaleExercises,
       noteTimings: _emptyTimings(notes.length),
       currentNoteStartedAt: null,
       lastPageAverageDuration: null,
@@ -685,13 +806,61 @@ class PracticeController extends Notifier<PracticeState> {
         );
   }
 
-  Future<void> _restoreSavedSettings() async {
+  List<MusicNote> _generatePracticeNotes({
+    required PracticeSource source,
+    required ScaleExercise scaleExercise,
+    required MusicNote lowest,
+    required MusicNote highest,
+    required PracticeKeySignature keySignature,
+    required bool allowAccidentals,
+    required int beatsPerMeasure,
+    required int measuresPerPage,
+    MusicNote? previousNote,
+  }) {
+    return switch (source) {
+      PracticeSource.random => _generateNotes(
+          lowest: lowest,
+          highest: highest,
+          keySignature: keySignature,
+          allowAccidentals: allowAccidentals,
+          beatsPerMeasure: beatsPerMeasure,
+          measuresPerPage: measuresPerPage,
+          previousNote: previousNote,
+        ),
+      PracticeSource.scaleExercise => scaleExercise.pageNotes(
+          previousNote: previousNote,
+        ),
+    };
+  }
+
+  PracticeKeySignature _nextKeySignature({
+    required PracticeSource source,
+    required ScaleExercise scaleExercise,
+    required Set<PracticeKeySignature> allowedKeySignatures,
+  }) {
+    return switch (source) {
+      PracticeSource.random => _chooseKeySignature(allowedKeySignatures),
+      PracticeSource.scaleExercise => scaleExercise.keySignature,
+    };
+  }
+
+  Future<void> _restoreSavedContent() async {
+    var exercises = fallbackScaleExercises;
+    try {
+      exercises =
+          await ref.read(practiceExerciseRepositoryProvider).loadExercises();
+    } on Object {
+      exercises = fallbackScaleExercises;
+    }
     final storedSettings = await ref.read(practiceSettingsStoreProvider).load();
-    if (!ref.mounted || storedSettings == null || state.isListening) {
+    if (!ref.mounted || state.isListening) {
       return;
     }
 
-    state = _stateFromSettings(storedSettings);
+    state = _stateFromSettings(
+      storedSettings ?? _defaultSettings(),
+      exercises: exercises,
+    );
   }
 
   void _persistSettings() {
@@ -700,9 +869,21 @@ class PracticeController extends Notifier<PracticeState> {
     );
   }
 
-  PracticeState _stateFromSettings(StoredPracticeSettings settings) {
-    final normalizedSettings = _normalizeSettings(settings);
-    final notes = _generateNotes(
+  PracticeState _stateFromSettings(
+    StoredPracticeSettings settings, {
+    List<ScaleExercise> exercises = fallbackScaleExercises,
+  }) {
+    final normalizedSettings = _normalizeSettings(
+      settings,
+      exercises: exercises,
+    );
+    final selectedExercise = scaleExerciseById(
+      normalizedSettings.scaleExerciseId,
+      exercises,
+    );
+    final notes = _generatePracticeNotes(
+      source: normalizedSettings.practiceSource,
+      scaleExercise: selectedExercise,
       lowest: normalizedSettings.lowestNote,
       highest: normalizedSettings.highestNote,
       keySignature: normalizedSettings.keySignature,
@@ -726,6 +907,9 @@ class PracticeController extends Notifier<PracticeState> {
       allowedKeySignatures: normalizedSettings.allowedKeySignatures,
       keySignature: normalizedSettings.keySignature,
       allowAccidentals: normalizedSettings.allowAccidentals,
+      practiceSource: normalizedSettings.practiceSource,
+      scaleExercise: selectedExercise,
+      scaleExercises: exercises,
       noteTimings: _emptyTimings(notes.length),
       currentNoteStartedAt: null,
       lastPageAverageDuration: null,
@@ -747,6 +931,8 @@ class PracticeController extends Notifier<PracticeState> {
       allowedKeySignatures: {PracticeKeySignature.cMajor},
       keySignature: PracticeKeySignature.cMajor,
       allowAccidentals: true,
+      practiceSource: PracticeSource.random,
+      scaleExerciseId: 'c_major_scale',
     );
   }
 
@@ -763,10 +949,15 @@ class PracticeController extends Notifier<PracticeState> {
       allowedKeySignatures: state.allowedKeySignatures,
       keySignature: state.keySignature,
       allowAccidentals: state.allowAccidentals,
+      practiceSource: state.practiceSource,
+      scaleExerciseId: state.scaleExercise.id,
     );
   }
 
-  StoredPracticeSettings _normalizeSettings(StoredPracticeSettings settings) {
+  StoredPracticeSettings _normalizeSettings(
+    StoredPracticeSettings settings, {
+    List<ScaleExercise> exercises = fallbackScaleExercises,
+  }) {
     final lowestNote = _clampPracticeNote(settings.lowestNote);
     final unclampedHighestNote = _clampPracticeNote(settings.highestNote);
     final highestNote = unclampedHighestNote.midi < lowestNote.midi
@@ -778,6 +969,10 @@ class PracticeController extends Notifier<PracticeState> {
     final keySignature = allowedKeySignatures.contains(settings.keySignature)
         ? settings.keySignature
         : allowedKeySignatures.first;
+    final scaleExercise =
+        scaleExerciseById(settings.scaleExerciseId, exercises);
+    final isScaleExercise =
+        settings.practiceSource == PracticeSource.scaleExercise;
 
     return StoredPracticeSettings(
       detectedOctaveShift: settings.detectedOctaveShift
@@ -785,18 +980,24 @@ class PracticeController extends Notifier<PracticeState> {
           .toInt(),
       lowestNote: lowestNote,
       highestNote: highestNote,
-      clef: settings.clef,
-      beatsPerMeasure: settings.beatsPerMeasure
-          .clamp(minBeatsPerMeasure, maxBeatsPerMeasure)
-          .toInt(),
-      measuresPerPage: settings.measuresPerPage
-          .clamp(minMeasuresPerPage, maxMeasuresPerPage)
-          .toInt(),
+      clef: isScaleExercise ? scaleExercise.clef : settings.clef,
+      beatsPerMeasure: isScaleExercise
+          ? scaleExercise.beatsPerMeasure
+          : settings.beatsPerMeasure
+              .clamp(minBeatsPerMeasure, maxBeatsPerMeasure)
+              .toInt(),
+      measuresPerPage: isScaleExercise
+          ? scaleExercise.measuresPerPage
+          : settings.measuresPerPage
+              .clamp(minMeasuresPerPage, maxMeasuresPerPage)
+              .toInt(),
       language: settings.language,
       staveBackground: settings.staveBackground,
       allowedKeySignatures: allowedKeySignatures,
-      keySignature: keySignature,
+      keySignature: isScaleExercise ? scaleExercise.keySignature : keySignature,
       allowAccidentals: settings.allowAccidentals,
+      practiceSource: settings.practiceSource,
+      scaleExerciseId: scaleExercise.id,
     );
   }
 

@@ -1,0 +1,12 @@
+{
+  "id": "ab_major_scale",
+  "category": "scales",
+  "name": "Ab major",
+  "difficulty": "advanced",
+  "labels": ["scale", "major", "flat", "ascending", "descending"],
+  "keySignature": "aFlatMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["Ab3", "Bb3", "C4", "Db4", "Eb4", "F4", "G4", "Ab4", "G4", "F4", "Eb4", "Db4", "C4", "Bb3", "Ab3"]
+}

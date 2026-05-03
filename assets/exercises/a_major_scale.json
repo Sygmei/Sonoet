@@ -1,0 +1,12 @@
+{
+  "id": "a_major_scale",
+  "category": "scales",
+  "name": "A major",
+  "difficulty": "intermediate",
+  "labels": ["scale", "major", "sharp", "ascending", "descending"],
+  "keySignature": "aMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["A3", "B3", "C#4", "D4", "E4", "F#4", "G#4", "A4", "G#4", "F#4", "E4", "D4", "C#4", "B3", "A3"]
+}

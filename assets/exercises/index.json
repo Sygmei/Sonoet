@@ -1,0 +1,13 @@
+{
+  "exercises": [
+    "c_major_scale.json",
+    "g_major_scale.json",
+    "d_major_scale.json",
+    "a_major_scale.json",
+    "e_major_scale.json",
+    "f_major_scale.json",
+    "bb_major_scale.json",
+    "eb_major_scale.json",
+    "ab_major_scale.json"
+  ]
+}

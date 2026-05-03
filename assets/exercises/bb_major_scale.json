@@ -1,0 +1,12 @@
+{
+  "id": "bb_major_scale",
+  "category": "scales",
+  "name": "Bb major",
+  "difficulty": "intermediate",
+  "labels": ["scale", "major", "flat", "ascending", "descending"],
+  "keySignature": "bFlatMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["Bb3", "C4", "D4", "Eb4", "F4", "G4", "A4", "Bb4", "A4", "G4", "F4", "Eb4", "D4", "C4", "Bb3"]
+}

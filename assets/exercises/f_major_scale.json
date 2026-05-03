@@ -1,0 +1,12 @@
+{
+  "id": "f_major_scale",
+  "category": "scales",
+  "name": "F major",
+  "difficulty": "beginner",
+  "labels": ["scale", "major", "flat", "ascending", "descending"],
+  "keySignature": "fMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["F4", "G4", "A4", "Bb4", "C5", "D5", "E5", "F5", "E5", "D5", "C5", "Bb4", "A4", "G4", "F4"]
+}

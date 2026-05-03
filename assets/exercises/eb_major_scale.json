@@ -1,0 +1,12 @@
+{
+  "id": "eb_major_scale",
+  "category": "scales",
+  "name": "Eb major",
+  "difficulty": "intermediate",
+  "labels": ["scale", "major", "flat", "ascending", "descending"],
+  "keySignature": "eFlatMajor",
+  "clef": "treble",
+  "measuresPerPage": 4,
+  "beatsPerMeasure": 4,
+  "notes": ["Eb4", "F4", "G4", "Ab4", "Bb4", "C5", "D5", "Eb5", "D5", "C5", "Bb4", "Ab4", "G4", "F4", "Eb4"]
+}

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/music_note.dart';
 import '../domain/practice_clef.dart';
+import '../domain/practice_exercise.dart';
 import '../domain/practice_key_signature.dart';
 import '../domain/practice_language.dart';
 import '../domain/stave_background.dart';
@@ -28,6 +29,11 @@ class PracticeScreen extends ConsumerWidget {
         title: const Text('Sonoet'),
         centerTitle: false,
         actions: [
+          IconButton(
+            tooltip: 'Main menu',
+            onPressed: () => _showPracticeMenu(context),
+            icon: const Icon(Icons.menu_book_rounded),
+          ),
           IconButton(
             tooltip: 'New exercise',
             onPressed: controller.reset,
@@ -90,6 +96,190 @@ class PracticeScreen extends ConsumerWidget {
                     ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+void _showPracticeMenu(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (_) => const _PracticeMenuSheet(),
+  );
+}
+
+class _PracticeMenuSheet extends ConsumerWidget {
+  const _PracticeMenuSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(practiceControllerProvider);
+    final controller = ref.read(practiceControllerProvider.notifier);
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Practice',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _MenuOptionTile(
+              icon: Icons.shuffle_rounded,
+              title: 'Random',
+              subtitle: 'Use your random note range and key settings',
+              selected: state.practiceSource == PracticeSource.random,
+              onTap: () async {
+                await controller.selectRandomPractice();
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+            ),
+            const SizedBox(height: 22),
+            Text(
+              'Exercises',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Scales',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final exercise in state.scaleExercises)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _MenuOptionTile(
+                  icon: Icons.stacked_line_chart_rounded,
+                  title: exercise.labelFor(state.language),
+                  subtitle: _exerciseSubtitle(exercise),
+                  selected:
+                      state.practiceSource == PracticeSource.scaleExercise &&
+                          state.scaleExercise.id == exercise.id,
+                  onTap: () async {
+                    await controller.selectScaleExercise(exercise);
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _exerciseSubtitle(ScaleExercise exercise) {
+    final labels = exercise.labels.take(3).join(', ');
+    if (labels.isEmpty) {
+      return exercise.difficulty;
+    }
+
+    return '${exercise.difficulty} - $labels';
+  }
+}
+
+class _MenuOptionTile extends StatelessWidget {
+  const _MenuOptionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: selected
+          ? theme.colorScheme.primaryContainer.withValues(alpha: 0.72)
+          : Colors.white.withValues(alpha: 0.72),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.primary
+                  : const Color(0xFFE0D9C8),
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 10),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: theme.colorScheme.primary,
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -257,29 +447,46 @@ class _SettingsSheet extends ConsumerWidget {
             ),
             const SizedBox(height: 22),
             _SettingsSection(
-              title: 'Measure',
-              child: Column(
+              title: 'Notation',
+              child: _NumberStepper(
+                label: 'Beats per measure',
+                value: state.beatsPerMeasure,
+                min: PracticeController.minBeatsPerMeasure,
+                max: PracticeController.maxBeatsPerMeasure,
+                decrementTooltip: 'Fewer beats',
+                incrementTooltip: 'More beats',
+                onChanged: controller.setBeatsPerMeasure,
+              ),
+            ),
+            const SizedBox(height: 22),
+            _SettingsSection(
+              title: 'Clef',
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  _NumberStepper(
-                    label: 'Beats per measure',
-                    value: state.beatsPerMeasure,
-                    min: PracticeController.minBeatsPerMeasure,
-                    max: PracticeController.maxBeatsPerMeasure,
-                    decrementTooltip: 'Fewer beats',
-                    incrementTooltip: 'More beats',
-                    onChanged: controller.setBeatsPerMeasure,
-                  ),
-                  const SizedBox(height: 10),
-                  _NumberStepper(
-                    label: 'Measures per page',
-                    value: state.measuresPerPage,
-                    min: PracticeController.minMeasuresPerPage,
-                    max: PracticeController.maxMeasuresPerPage,
-                    decrementTooltip: 'Fewer measures',
-                    incrementTooltip: 'More measures',
-                    onChanged: controller.setMeasuresPerPage,
-                  ),
+                  for (final clef in PracticeClef.values)
+                    ChoiceChip(
+                      label: Text(clef.labelFor(state.language)),
+                      selected: state.clef == clef,
+                      onSelected: (_) => controller.setClef(clef),
+                    ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            const _SettingsDivider(title: 'Random page'),
+            const SizedBox(height: 16),
+            _SettingsSection(
+              title: 'Page length',
+              child: _NumberStepper(
+                label: 'Measures per page',
+                value: state.measuresPerPage,
+                min: PracticeController.minMeasuresPerPage,
+                max: PracticeController.maxMeasuresPerPage,
+                decrementTooltip: 'Fewer measures',
+                incrementTooltip: 'More measures',
+                onChanged: controller.setMeasuresPerPage,
               ),
             ),
             const SizedBox(height: 22),
@@ -325,22 +532,6 @@ class _SettingsSheet extends ConsumerWidget {
                       );
                     },
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 22),
-            _SettingsSection(
-              title: 'Clef',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final clef in PracticeClef.values)
-                    ChoiceChip(
-                      label: Text(clef.labelFor(state.language)),
-                      selected: state.clef == clef,
-                      onSelected: (_) => controller.setClef(clef),
-                    ),
                 ],
               ),
             ),
@@ -467,6 +658,43 @@ class _SettingsSection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         child,
+      ],
+    );
+  }
+}
+
+class _SettingsDivider extends StatelessWidget {
+  const _SettingsDivider({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Expanded(
+          child: Divider(
+            color: theme.colorScheme.outlineVariant,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Divider(
+            color: theme.colorScheme.outlineVariant,
+          ),
+        ),
       ],
     );
   }
