@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/microphone_pitch_source.dart';
+import '../data/practice_settings_store.dart';
 import '../domain/detected_pitch.dart';
 import '../domain/music_note.dart';
 import '../domain/note_generator.dart';
@@ -20,6 +21,9 @@ final pitchSourceProvider = Provider<PitchSource>((ref) {
   ref.onDispose(source.dispose);
   return source;
 });
+
+final practiceSettingsStoreProvider =
+    Provider<PracticeSettingsStore>((ref) => PracticeSettingsStore());
 
 final practiceControllerProvider =
     NotifierProvider<PracticeController, PracticeState>(PracticeController.new);
@@ -84,6 +88,9 @@ class PracticeState {
     required this.allowAccidentals,
     required this.noteTimings,
     required this.currentNoteStartedAt,
+    this.lastPageAverageDuration,
+    this.lastPageTotalDuration,
+    this.bestPageTotalDuration,
     this.lastPitch,
     this.lastCents,
     this.errorMessage,
@@ -105,6 +112,9 @@ class PracticeState {
   final bool allowAccidentals;
   final List<NoteTimingResult?> noteTimings;
   final DateTime? currentNoteStartedAt;
+  final Duration? lastPageAverageDuration;
+  final Duration? lastPageTotalDuration;
+  final Duration? bestPageTotalDuration;
   final DetectedPitch? lastPitch;
   final double? lastCents;
   final String? errorMessage;
@@ -137,7 +147,9 @@ class PracticeState {
   SessionRecap buildRecap() {
     final results = <SessionRecapNote>[];
 
-    for (var index = 0; index < notes.length && index < noteTimings.length; index++) {
+    for (var index = 0;
+        index < notes.length && index < noteTimings.length;
+        index++) {
       final timing = noteTimings[index];
       if (timing != null) {
         results.add(
@@ -201,6 +213,9 @@ class PracticeState {
     bool? allowAccidentals,
     List<NoteTimingResult?>? noteTimings,
     DateTime? currentNoteStartedAt,
+    Duration? lastPageAverageDuration,
+    Duration? lastPageTotalDuration,
+    Duration? bestPageTotalDuration,
     DetectedPitch? lastPitch,
     double? lastCents,
     String? errorMessage,
@@ -208,6 +223,9 @@ class PracticeState {
     bool clearCents = false,
     bool clearError = false,
     bool clearCurrentNoteStartedAt = false,
+    bool clearLastPageAverageDuration = false,
+    bool clearLastPageTotalDuration = false,
+    bool clearBestPageTotalDuration = false,
   }) {
     return PracticeState(
       notes: notes ?? this.notes,
@@ -228,6 +246,15 @@ class PracticeState {
       currentNoteStartedAt: clearCurrentNoteStartedAt
           ? null
           : currentNoteStartedAt ?? this.currentNoteStartedAt,
+      lastPageAverageDuration: clearLastPageAverageDuration
+          ? null
+          : lastPageAverageDuration ?? this.lastPageAverageDuration,
+      lastPageTotalDuration: clearLastPageTotalDuration
+          ? null
+          : lastPageTotalDuration ?? this.lastPageTotalDuration,
+      bestPageTotalDuration: clearBestPageTotalDuration
+          ? null
+          : bestPageTotalDuration ?? this.bestPageTotalDuration,
       lastPitch: clearPitch ? null : lastPitch ?? this.lastPitch,
       lastCents: clearPitch || clearCents ? null : lastCents ?? this.lastCents,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
@@ -248,38 +275,29 @@ class PracticeController extends Notifier<PracticeState> {
   static const _minimumProbability = 0.72;
 
   StreamSubscription<DetectedPitch>? _pitchSubscription;
+  PitchSource? _activePitchSource;
   int _stableFrames = 0;
   final math.Random _random = math.Random();
 
   @override
   PracticeState build() {
-    ref.onDispose(_stopListening);
+    ref.onDispose(() {
+      final pitchSubscription = _pitchSubscription;
+      final activePitchSource = _activePitchSource;
+      _pitchSubscription = null;
+      _activePitchSource = null;
 
-    return PracticeState(
-      notes: _generateNotes(
-        lowest: MusicNote.c4,
-        highest: MusicNote.c5,
-        keySignature: PracticeKeySignature.cMajor,
-        allowAccidentals: true,
-        beatsPerMeasure: 4,
-        measuresPerPage: 3,
-      ),
-      currentIndex: 0,
-      status: PracticeStatus.idle,
-      detectedOctaveShift: 0,
-      lowestNote: MusicNote.c4,
-      highestNote: MusicNote.c5,
-      clef: PracticeClef.treble,
-      beatsPerMeasure: 4,
-      measuresPerPage: 3,
-      language: PracticeLanguage.english,
-      staveBackground: StaveBackground.paper,
-      allowedKeySignatures: const {PracticeKeySignature.cMajor},
-      keySignature: PracticeKeySignature.cMajor,
-      allowAccidentals: true,
-      noteTimings: _emptyTimings(12),
-      currentNoteStartedAt: null,
-    );
+      if (pitchSubscription != null) {
+        unawaited(pitchSubscription.cancel());
+      }
+      if (activePitchSource != null) {
+        unawaited(activePitchSource.stop());
+      }
+    });
+
+    unawaited(_restoreSavedSettings());
+
+    return _stateFromSettings(_defaultSettings());
   }
 
   Future<void> start() async {
@@ -291,11 +309,14 @@ class PracticeController extends Notifier<PracticeState> {
     state = state.copyWith(
       status: PracticeStatus.listening,
       clearError: true,
-      currentNoteStartedAt: DateTime.now(),
+      currentNoteStartedAt: state.currentIndex == 0 ? null : DateTime.now(),
+      clearCurrentNoteStartedAt: state.currentIndex == 0,
     );
 
     await _pitchSubscription?.cancel();
-    _pitchSubscription = ref.read(pitchSourceProvider).start().listen(
+    final pitchSource = ref.read(pitchSourceProvider);
+    _activePitchSource = pitchSource;
+    _pitchSubscription = pitchSource.start().listen(
           _handlePitch,
           onError: _handlePitchError,
         );
@@ -315,13 +336,13 @@ class PracticeController extends Notifier<PracticeState> {
     _stableFrames = 0;
     final keySignature = _chooseKeySignature(state.allowedKeySignatures);
     final notes = _generateNotes(
-        lowest: state.lowestNote,
-        highest: state.highestNote,
-        keySignature: keySignature,
-        allowAccidentals: state.allowAccidentals,
-        beatsPerMeasure: state.beatsPerMeasure,
-        measuresPerPage: state.measuresPerPage,
-      );
+      lowest: state.lowestNote,
+      highest: state.highestNote,
+      keySignature: keySignature,
+      allowAccidentals: state.allowAccidentals,
+      beatsPerMeasure: state.beatsPerMeasure,
+      measuresPerPage: state.measuresPerPage,
+    );
     state = PracticeState(
       notes: notes,
       currentIndex: 0,
@@ -339,13 +360,15 @@ class PracticeController extends Notifier<PracticeState> {
       allowAccidentals: state.allowAccidentals,
       noteTimings: _emptyTimings(notes.length),
       currentNoteStartedAt: null,
+      lastPageAverageDuration: null,
+      lastPageTotalDuration: null,
+      bestPageTotalDuration: null,
     );
   }
 
   void setDetectedOctaveShift(int value) {
-    final nextValue = value
-        .clamp(minDetectedOctaveShift, maxDetectedOctaveShift)
-        .toInt();
+    final nextValue =
+        value.clamp(minDetectedOctaveShift, maxDetectedOctaveShift).toInt();
 
     if (nextValue == state.detectedOctaveShift) {
       return;
@@ -356,6 +379,7 @@ class PracticeController extends Notifier<PracticeState> {
       detectedOctaveShift: nextValue,
       clearPitch: true,
     );
+    _persistSettings();
   }
 
   Future<void> setLowestNote(MusicNote note) async {
@@ -397,7 +421,8 @@ class PracticeController extends Notifier<PracticeState> {
   }
 
   Future<void> setBeatsPerMeasure(int value) async {
-    final nextValue = value.clamp(minBeatsPerMeasure, maxBeatsPerMeasure).toInt();
+    final nextValue =
+        value.clamp(minBeatsPerMeasure, maxBeatsPerMeasure).toInt();
     if (nextValue == state.beatsPerMeasure) {
       return;
     }
@@ -406,9 +431,8 @@ class PracticeController extends Notifier<PracticeState> {
   }
 
   Future<void> setMeasuresPerPage(int value) async {
-    final nextValue = value
-        .clamp(minMeasuresPerPage, maxMeasuresPerPage)
-        .toInt();
+    final nextValue =
+        value.clamp(minMeasuresPerPage, maxMeasuresPerPage).toInt();
     if (nextValue == state.measuresPerPage) {
       return;
     }
@@ -422,6 +446,7 @@ class PracticeController extends Notifier<PracticeState> {
     }
 
     state = state.copyWith(language: language);
+    _persistSettings();
   }
 
   void setStaveBackground(StaveBackground background) {
@@ -430,9 +455,11 @@ class PracticeController extends Notifier<PracticeState> {
     }
 
     state = state.copyWith(staveBackground: background);
+    _persistSettings();
   }
 
-  Future<void> toggleAllowedKeySignature(PracticeKeySignature keySignature) async {
+  Future<void> toggleAllowedKeySignature(
+      PracticeKeySignature keySignature) async {
     final allowed = {...state.allowedKeySignatures};
     if (allowed.contains(keySignature)) {
       if (allowed.length == 1) {
@@ -493,9 +520,9 @@ class PracticeController extends Notifier<PracticeState> {
     if (_stableFrames >= _requiredStableFrames) {
       final nextIndex = state.currentIndex + 1;
       final completedAt = DateTime.now();
-      final startedAt = state.currentNoteStartedAt ?? completedAt;
+      final startedAt = state.currentNoteStartedAt;
       final noteTimings = List<NoteTimingResult?>.of(state.noteTimings);
-      if (state.currentIndex < noteTimings.length) {
+      if (startedAt != null && state.currentIndex < noteTimings.length) {
         noteTimings[state.currentIndex] = NoteTimingResult(
           duration: completedAt.difference(startedAt),
           completedAt: completedAt,
@@ -503,21 +530,50 @@ class PracticeController extends Notifier<PracticeState> {
       }
       _stableFrames = 0;
 
+      if (nextIndex >= state.notes.length) {
+        final averageDuration = _averageDuration(noteTimings);
+        final totalDuration =
+            nextIndex <= 1 ? Duration.zero : _totalDuration(noteTimings);
+        final bestDuration = _bestDuration(
+          currentBest: state.bestPageTotalDuration,
+          candidate: totalDuration,
+        );
+        final nextKeySignature =
+            _chooseKeySignature(state.allowedKeySignatures);
+        final nextNotes = _generateNotes(
+          lowest: state.lowestNote,
+          highest: state.highestNote,
+          keySignature: nextKeySignature,
+          allowAccidentals: state.allowAccidentals,
+          beatsPerMeasure: state.beatsPerMeasure,
+          measuresPerPage: state.measuresPerPage,
+          previousNote: note,
+        );
+
+        state = state.copyWith(
+          notes: nextNotes,
+          currentIndex: 0,
+          status: PracticeStatus.listening,
+          keySignature: nextKeySignature,
+          lastPitch: pitch,
+          lastCents: cents,
+          noteTimings: _emptyTimings(nextNotes.length),
+          clearCurrentNoteStartedAt: true,
+          lastPageAverageDuration: averageDuration,
+          lastPageTotalDuration: totalDuration,
+          bestPageTotalDuration: bestDuration,
+        );
+        return;
+      }
+
       state = state.copyWith(
         currentIndex: nextIndex,
-        status: nextIndex >= state.notes.length
-            ? PracticeStatus.completed
-            : PracticeStatus.listening,
+        status: PracticeStatus.listening,
         lastPitch: pitch,
         lastCents: cents,
         noteTimings: noteTimings,
-        currentNoteStartedAt:
-            nextIndex >= state.notes.length ? null : completedAt,
+        currentNoteStartedAt: completedAt,
       );
-
-      if (nextIndex >= state.notes.length) {
-        _stopListening();
-      }
       return;
     }
 
@@ -548,7 +604,9 @@ class PracticeController extends Notifier<PracticeState> {
   Future<void> _stopListening() async {
     await _pitchSubscription?.cancel();
     _pitchSubscription = null;
-    await ref.read(pitchSourceProvider).stop();
+    final activePitchSource = _activePitchSource;
+    _activePitchSource = null;
+    await activePitchSource?.stop();
   }
 
   Future<void> _setExerciseSettings({
@@ -568,20 +626,21 @@ class PracticeController extends Notifier<PracticeState> {
     final nextAllowedKeySignatures =
         allowedKeySignatures ?? state.allowedKeySignatures;
     final nextAllowAccidentals = allowAccidentals ?? state.allowAccidentals;
-    final nextKeySignature = nextAllowedKeySignatures.contains(state.keySignature)
-        ? _chooseKeySignature(nextAllowedKeySignatures)
-        : nextAllowedKeySignatures.first;
+    final nextKeySignature =
+        nextAllowedKeySignatures.contains(state.keySignature)
+            ? _chooseKeySignature(nextAllowedKeySignatures)
+            : nextAllowedKeySignatures.first;
 
     await _stopListening();
     _stableFrames = 0;
     final notes = _generateNotes(
-        lowest: nextLowest,
-        highest: nextHighest,
-        keySignature: nextKeySignature,
-        allowAccidentals: nextAllowAccidentals,
-        beatsPerMeasure: nextBeatsPerMeasure,
-        measuresPerPage: nextMeasuresPerPage,
-      );
+      lowest: nextLowest,
+      highest: nextHighest,
+      keySignature: nextKeySignature,
+      allowAccidentals: nextAllowAccidentals,
+      beatsPerMeasure: nextBeatsPerMeasure,
+      measuresPerPage: nextMeasuresPerPage,
+    );
     state = PracticeState(
       notes: notes,
       currentIndex: 0,
@@ -599,7 +658,11 @@ class PracticeController extends Notifier<PracticeState> {
       allowAccidentals: nextAllowAccidentals,
       noteTimings: _emptyTimings(notes.length),
       currentNoteStartedAt: null,
+      lastPageAverageDuration: null,
+      lastPageTotalDuration: null,
+      bestPageTotalDuration: null,
     );
+    _persistSettings();
   }
 
   List<MusicNote> _generateNotes({
@@ -609,6 +672,7 @@ class PracticeController extends Notifier<PracticeState> {
     required bool allowAccidentals,
     required int beatsPerMeasure,
     required int measuresPerPage,
+    MusicNote? previousNote,
   }) {
     return ref.read(noteGeneratorProvider).generate(
           length: beatsPerMeasure * measuresPerPage,
@@ -617,7 +681,123 @@ class PracticeController extends Notifier<PracticeState> {
             highest: highest,
             includeAccidentals: allowAccidentals,
           ),
+          previousNote: previousNote,
         );
+  }
+
+  Future<void> _restoreSavedSettings() async {
+    final storedSettings = await ref.read(practiceSettingsStoreProvider).load();
+    if (!ref.mounted || storedSettings == null || state.isListening) {
+      return;
+    }
+
+    state = _stateFromSettings(storedSettings);
+  }
+
+  void _persistSettings() {
+    unawaited(
+      ref.read(practiceSettingsStoreProvider).save(_settingsFromState(state)),
+    );
+  }
+
+  PracticeState _stateFromSettings(StoredPracticeSettings settings) {
+    final normalizedSettings = _normalizeSettings(settings);
+    final notes = _generateNotes(
+      lowest: normalizedSettings.lowestNote,
+      highest: normalizedSettings.highestNote,
+      keySignature: normalizedSettings.keySignature,
+      allowAccidentals: normalizedSettings.allowAccidentals,
+      beatsPerMeasure: normalizedSettings.beatsPerMeasure,
+      measuresPerPage: normalizedSettings.measuresPerPage,
+    );
+
+    return PracticeState(
+      notes: notes,
+      currentIndex: 0,
+      status: PracticeStatus.idle,
+      detectedOctaveShift: normalizedSettings.detectedOctaveShift,
+      lowestNote: normalizedSettings.lowestNote,
+      highestNote: normalizedSettings.highestNote,
+      clef: normalizedSettings.clef,
+      beatsPerMeasure: normalizedSettings.beatsPerMeasure,
+      measuresPerPage: normalizedSettings.measuresPerPage,
+      language: normalizedSettings.language,
+      staveBackground: normalizedSettings.staveBackground,
+      allowedKeySignatures: normalizedSettings.allowedKeySignatures,
+      keySignature: normalizedSettings.keySignature,
+      allowAccidentals: normalizedSettings.allowAccidentals,
+      noteTimings: _emptyTimings(notes.length),
+      currentNoteStartedAt: null,
+      lastPageAverageDuration: null,
+      lastPageTotalDuration: null,
+      bestPageTotalDuration: null,
+    );
+  }
+
+  StoredPracticeSettings _defaultSettings() {
+    return const StoredPracticeSettings(
+      detectedOctaveShift: 0,
+      lowestNote: MusicNote.c4,
+      highestNote: MusicNote.c5,
+      clef: PracticeClef.treble,
+      beatsPerMeasure: 4,
+      measuresPerPage: 3,
+      language: PracticeLanguage.english,
+      staveBackground: StaveBackground.paper,
+      allowedKeySignatures: {PracticeKeySignature.cMajor},
+      keySignature: PracticeKeySignature.cMajor,
+      allowAccidentals: true,
+    );
+  }
+
+  StoredPracticeSettings _settingsFromState(PracticeState state) {
+    return StoredPracticeSettings(
+      detectedOctaveShift: state.detectedOctaveShift,
+      lowestNote: state.lowestNote,
+      highestNote: state.highestNote,
+      clef: state.clef,
+      beatsPerMeasure: state.beatsPerMeasure,
+      measuresPerPage: state.measuresPerPage,
+      language: state.language,
+      staveBackground: state.staveBackground,
+      allowedKeySignatures: state.allowedKeySignatures,
+      keySignature: state.keySignature,
+      allowAccidentals: state.allowAccidentals,
+    );
+  }
+
+  StoredPracticeSettings _normalizeSettings(StoredPracticeSettings settings) {
+    final lowestNote = _clampPracticeNote(settings.lowestNote);
+    final unclampedHighestNote = _clampPracticeNote(settings.highestNote);
+    final highestNote = unclampedHighestNote.midi < lowestNote.midi
+        ? lowestNote
+        : unclampedHighestNote;
+    final allowedKeySignatures = settings.allowedKeySignatures.isEmpty
+        ? const {PracticeKeySignature.cMajor}
+        : settings.allowedKeySignatures;
+    final keySignature = allowedKeySignatures.contains(settings.keySignature)
+        ? settings.keySignature
+        : allowedKeySignatures.first;
+
+    return StoredPracticeSettings(
+      detectedOctaveShift: settings.detectedOctaveShift
+          .clamp(minDetectedOctaveShift, maxDetectedOctaveShift)
+          .toInt(),
+      lowestNote: lowestNote,
+      highestNote: highestNote,
+      clef: settings.clef,
+      beatsPerMeasure: settings.beatsPerMeasure
+          .clamp(minBeatsPerMeasure, maxBeatsPerMeasure)
+          .toInt(),
+      measuresPerPage: settings.measuresPerPage
+          .clamp(minMeasuresPerPage, maxMeasuresPerPage)
+          .toInt(),
+      language: settings.language,
+      staveBackground: settings.staveBackground,
+      allowedKeySignatures: allowedKeySignatures,
+      keySignature: keySignature,
+      allowAccidentals: settings.allowAccidentals,
+    );
   }
 
   MusicNote _clampPracticeNote(MusicNote note) {
@@ -632,6 +812,48 @@ class PracticeController extends Notifier<PracticeState> {
 
   List<NoteTimingResult?> _emptyTimings(int length) {
     return List<NoteTimingResult?>.filled(length, null, growable: false);
+  }
+
+  Duration? _averageDuration(List<NoteTimingResult?> timings) {
+    final completed = timings.whereType<NoteTimingResult>().toList();
+    if (completed.isEmpty) {
+      return null;
+    }
+
+    final totalMilliseconds = completed.fold<int>(
+      0,
+      (total, timing) => total + timing.duration.inMilliseconds,
+    );
+
+    return Duration(milliseconds: totalMilliseconds ~/ completed.length);
+  }
+
+  Duration? _totalDuration(List<NoteTimingResult?> timings) {
+    final completed = timings.whereType<NoteTimingResult>().toList();
+    if (completed.isEmpty) {
+      return null;
+    }
+
+    final totalMilliseconds = completed.fold<int>(
+      0,
+      (total, timing) => total + timing.duration.inMilliseconds,
+    );
+
+    return Duration(milliseconds: totalMilliseconds);
+  }
+
+  Duration? _bestDuration({
+    required Duration? currentBest,
+    required Duration? candidate,
+  }) {
+    if (candidate == null) {
+      return currentBest;
+    }
+    if (currentBest == null || candidate < currentBest) {
+      return candidate;
+    }
+
+    return currentBest;
   }
 
   PracticeKeySignature _chooseKeySignature(Set<PracticeKeySignature> allowed) {

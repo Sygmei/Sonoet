@@ -63,7 +63,7 @@ class PracticeScreen extends ConsumerWidget {
                         return Row(
                           children: [
                             SizedBox(
-                              width: innerConstraints.maxWidth * 0.80,
+                              width: innerConstraints.maxWidth * 0.70,
                               child: staffPanel,
                             ),
                             const SizedBox(width: gap),
@@ -173,9 +173,9 @@ class _StaffPanelState extends State<_StaffPanel> {
           notes: widget.state.notes,
           currentIndex: widget.state.currentIndex,
           playedNote: widget.playedNote,
-              clef: widget.state.clef,
-              keySignature: widget.state.keySignature,
-              beatsPerMeasure: widget.state.beatsPerMeasure,
+          clef: widget.state.clef,
+          keySignature: widget.state.keySignature,
+          beatsPerMeasure: widget.state.beatsPerMeasure,
           noteTimings: widget.state.noteTimings,
           now: _now,
           colorScheme: Theme.of(context).colorScheme,
@@ -297,10 +297,12 @@ class _SettingsSheet extends ConsumerWidget {
                     canIncrement:
                         state.lowestNote.midi < state.highestNote.midi,
                     onDecrement: () {
-                      controller.setLowestNote(state.lowestNote.shiftNatural(-1));
+                      controller
+                          .setLowestNote(state.lowestNote.shiftNatural(-1));
                     },
                     onIncrement: () {
-                      controller.setLowestNote(state.lowestNote.shiftNatural(1));
+                      controller
+                          .setLowestNote(state.lowestNote.shiftNatural(1));
                     },
                   ),
                   const SizedBox(height: 10),
@@ -735,20 +737,18 @@ class _ProgressHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final title = switch (state.status) {
-      PracticeStatus.completed => 'Exercise complete',
+    final statusText = switch (state.status) {
       PracticeStatus.permissionDenied => 'Microphone blocked',
       PracticeStatus.error => 'Audio unavailable',
-      PracticeStatus.listening => 'Play the highlighted note',
-      PracticeStatus.idle => '',
+      _ => '',
     };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (title.isNotEmpty) ...[
+        if (statusText.isNotEmpty) ...[
           Text(
-            title,
+            statusText,
             style: theme.textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.w700,
               letterSpacing: 0,
@@ -756,12 +756,224 @@ class _ProgressHeader extends StatelessWidget {
           ),
           const SizedBox(height: 10),
         ],
-        ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: LinearProgressIndicator(
-            value: state.progress,
-            minHeight: 6,
-            backgroundColor: const Color(0xFFE7E0CF),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final metrics = [
+              _ScoreMetric(
+                icon: Icons.speed_rounded,
+                label: 'Avg note',
+                value: _formatReactionDuration(state.lastPageAverageDuration),
+              ),
+              _SplitScoreMetric(
+                icon: Icons.timer_rounded,
+                firstLabel: 'Last',
+                firstValue: _formatTotalDuration(state.lastPageTotalDuration),
+                secondLabel: 'Best',
+                secondValue: _formatTotalDuration(state.bestPageTotalDuration),
+              ),
+            ];
+
+            if (constraints.maxWidth < 320) {
+              return Column(
+                children: [
+                  for (var index = 0; index < metrics.length; index++) ...[
+                    if (index > 0) const SizedBox(height: 8),
+                    metrics[index],
+                  ],
+                ],
+              );
+            }
+
+            return Row(
+              children: [
+                for (var index = 0; index < metrics.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 8),
+                  Expanded(child: metrics[index]),
+                ],
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  String _formatReactionDuration(Duration? duration) {
+    if (duration == null) {
+      return '-';
+    }
+
+    return '${duration.inMilliseconds} ms';
+  }
+
+  String _formatTotalDuration(Duration? duration) {
+    if (duration == null) {
+      return '-';
+    }
+
+    final seconds = duration.inMilliseconds / 1000;
+    return '${seconds.toStringAsFixed(2)} s';
+  }
+}
+
+class _ScoreMetric extends StatelessWidget {
+  const _ScoreMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.62),
+        border: Border.all(color: const Color(0xFFE0D9C8)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 17,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SplitScoreMetric extends StatelessWidget {
+  const _SplitScoreMetric({
+    required this.icon,
+    required this.firstLabel,
+    required this.firstValue,
+    required this.secondLabel,
+    required this.secondValue,
+  });
+
+  final IconData icon;
+  final String firstLabel;
+  final String firstValue;
+  final String secondLabel;
+  final String secondValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.62),
+        border: Border.all(color: const Color(0xFFE0D9C8)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 17,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _InlineScoreValue(
+                label: firstLabel,
+                value: firstValue,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _InlineScoreValue(
+                label: secondLabel,
+                value: secondValue,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineScoreValue extends StatelessWidget {
+  const _InlineScoreValue({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
           ),
         ),
       ],

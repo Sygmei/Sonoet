@@ -21,11 +21,24 @@ class NoteGenerator {
   List<MusicNote> generate({
     int length = 12,
     List<MusicNote> range = beginnerTrebleRange,
+    MusicNote? previousNote,
   }) {
-    return List<MusicNote>.generate(
-      length,
-      (_) => range[_random.nextInt(range.length)],
-      growable: false,
-    );
+    if (range.isEmpty) {
+      return const [];
+    }
+
+    final notes = <MusicNote>[];
+    for (var index = 0; index < length; index++) {
+      final previous = notes.isEmpty ? previousNote : notes.last;
+      final choices = previous == null || range.length == 1
+          ? range
+          : range
+              .where((note) => note.midi != previous.midi)
+              .toList(growable: false);
+
+      notes.add(choices[_random.nextInt(choices.length)]);
+    }
+
+    return notes;
   }
 }
