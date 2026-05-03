@@ -1,0 +1,23 @@
+name: sonoet
+description: Training app for musicians to practice reading and playing notes.
+publish_to: "none"
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.0.3
+  pitch_detector_dart: ^0.0.7
+  record: ^6.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
